@@ -1,0 +1,1 @@
+{"dependencies":{"cors":"^2.8.5","express":"^4.19.2","socket.io":"^4.7.5"},"description":"Adda — Chill Together: realtime hangout rooms server (Express + Socket.IO)","devDependencies":{"socket.io-client":"^4.7.5"},"main":"index.js","name":"adda-server","scripts":{"dev":"node --watch index.js","start":"node index.js","test":"node test/smoke.js"},"version":"1.0.0"}
