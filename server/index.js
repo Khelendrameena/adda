@@ -11,12 +11,57 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
+const yts = require('yt-search');
 
 const PORT = process.env.PORT || 4000;
 
 const app = express();
 app.use(cors());
 app.get('/health', (_req, res) => res.json({ ok: true }));
+
+/* ------------------------------------------------------------------ */
+/* YouTube search (keyless, via yt-search) with a 5-minute cache       */
+/* ------------------------------------------------------------------ */
+
+const searchCache = new Map(); // lowercased query -> { at, results }
+const SEARCH_TTL_MS = 5 * 60 * 1000;
+
+app.get('/api/search', async (req, res) => {
+  const q = String(req.query.q || '').trim().slice(0, 100);
+  if (!q) return res.status(400).json({ error: 'Search query (q) chahiye.' });
+
+  const key = q.toLowerCase();
+  const hit = searchCache.get(key);
+  if (hit && Date.now() - hit.at < SEARCH_TTL_MS) {
+    return res.json({ results: hit.results, cached: true });
+  }
+
+  try {
+    let r;
+    try {
+      r = await yts(q);
+    } catch {
+      r = await yts(q); // one retry — the scraper occasionally throws a parser error
+    }
+    const results = (r.videos || [])
+      .filter((v) => v && v.videoId && v.title)
+      .slice(0, 12)
+      .map((v) => ({
+        videoId: v.videoId,
+        title: String(v.title).slice(0, 150),
+        thumbnail: v.thumbnail || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
+        duration: v.timestamp || '',
+        views: typeof v.views === 'number' ? v.views : 0,
+        author: (v.author && v.author.name) || '',
+      }));
+    if (searchCache.size > 100) searchCache.delete(searchCache.keys().next().value);
+    searchCache.set(key, { at: Date.now(), results });
+    return res.json({ results });
+  } catch (e) {
+    console.error(`[search] failed for ${JSON.stringify(q)}:`, e.message);
+    return res.status(502).json({ error: 'Search abhi nahi ho paya — thodi der baad phir try karo.' });
+  }
+});
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
@@ -76,6 +121,7 @@ function createRoom(name, hostSocket) {
     notes: '',
     todos: [], // [{ id, text, done, by }]
     voice: new Set(), // socketIds currently in voice
+    screenShare: null, // { id, name } of the member sharing their screen, or null
     lastAdvanceAt: 0,
   };
   rooms.set(room.code, room);
@@ -112,6 +158,7 @@ function snapshot(room, youId) {
     notes: room.notes,
     todos: room.todos,
     voicePeers: [...room.voice],
+    screenShare: room.screenShare ? { id: room.screenShare.id, name: room.screenShare.name } : null,
   };
 }
 
@@ -310,6 +357,44 @@ io.on('connection', (socket) => {
   socket.on('webrtc_answer', ({ to, sdp }) => io.to(to).emit('webrtc_answer', { from: socket.id, sdp }));
   socket.on('webrtc_ice', ({ to, candidate }) => io.to(to).emit('webrtc_ice', { from: socket.id, candidate }));
 
+  /* --------------------------- screen share --------------------------- */
+  // One sharer at a time. The server arbitrates the slot and tracks the
+  // sharer per room; the video itself flows peer-to-peer over dedicated
+  // RTCPeerConnections (signaling relayed with screen_* events below).
+  socket.on('screen_share_start', (_data, cb) => {
+    const reply = (obj) => { if (typeof cb === 'function') cb(obj); };
+    if (!requireRoom()) return reply({ ok: false, error: 'Room me nahi ho.' });
+    if (room.screenShare && room.screenShare.id !== socket.id) {
+      return reply({ ok: false, error: 'Pehle se koi screen share kar raha hai.' });
+    }
+    room.screenShare = { id: socket.id, name: room.members.get(socket.id)?.name || 'Guest' };
+    io.to(room.code).emit('screen_share_started', { byId: socket.id, byName: room.screenShare.name });
+    return reply({ ok: true });
+  });
+
+  const endScreenShare = (r, byId) => {
+    r.screenShare = null;
+    io.to(r.code).emit('screen_share_stopped', { byId });
+  };
+
+  socket.on('screen_share_stop', () => {
+    if (!requireRoom()) return;
+    if (room.screenShare?.id !== socket.id) return; // only the sharer can stop it
+    endScreenShare(room, socket.id);
+  });
+
+  // A viewer who joined while a share is live asks the sharer to call them.
+  socket.on('screen_request', () => {
+    if (!requireRoom() || !room.screenShare) return;
+    if (room.screenShare.id === socket.id) return;
+    io.to(room.screenShare.id).emit('screen_request', { from: socket.id });
+  });
+
+  // Screen-share signaling relay (dedicated peer connections, separate from voice)
+  socket.on('screen_offer', ({ to, sdp }) => io.to(to).emit('screen_offer', { from: socket.id, sdp }));
+  socket.on('screen_answer', ({ to, sdp }) => io.to(to).emit('screen_answer', { from: socket.id, sdp }));
+  socket.on('screen_ice', ({ to, candidate }) => io.to(to).emit('screen_ice', { from: socket.id, candidate }));
+
   /* ---------------------------- disconnect --------------------------- */
   socket.on('disconnect', () => {
     if (!room || !rooms.has(room.code)) return;
@@ -317,6 +402,14 @@ io.on('connection', (socket) => {
     r.members.delete(socket.id);
     if (r.voice.delete(socket.id)) {
       socket.to(r.code).emit('voice_peer_left', { id: socket.id });
+    }
+    if (r.screenShare) {
+      if (r.screenShare.id === socket.id) {
+        endScreenShare(r, socket.id); // sharer left — stage returns to the player
+      } else {
+        // let the sharer close its peer connection to this viewer
+        io.to(r.screenShare.id).emit('screen_viewer_left', { id: socket.id });
+      }
     }
     if (r.members.size === 0) {
       rooms.delete(r.code); // clean up empty room

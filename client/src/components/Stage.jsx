@@ -219,7 +219,7 @@ export default function Stage({ playback }) {
         <div className="text-5xl mb-3">🎬</div>
         <div className="font-semibold text-lg">Stage khaali hai</div>
         <p className="text-sm text-gray-400 mt-1 max-w-sm">
-          Right side <b>Queue</b> tab se koi YouTube gaana ya video lagao — poora room ek saath dekhega, bilkul sync me.
+          Right side <b>🔍 Dekho</b> tab me search karke koi gaana/video lagao, ya <b>Queue</b> tab me link paste karo — poora room ek saath dekhega, bilkul sync me.
         </p>
       </div>
     );

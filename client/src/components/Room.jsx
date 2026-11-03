@@ -2,16 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import { getSocket } from '../lib/socket.js';
 import { avatarColor } from '../lib/media.js';
 import { useVoice } from '../hooks/useVoice.js';
+import { useScreenShare } from '../hooks/useScreenShare.js';
 import Stage from './Stage.jsx';
+import ScreenStage from './ScreenStage.jsx';
 import Chat from './Chat.jsx';
 import QueuePanel from './QueuePanel.jsx';
+import BrowsePanel from './BrowsePanel.jsx';
 import WorkPanel from './WorkPanel.jsx';
 
 const EMOJIS = ['❤️', '😂', '🔥', '👏', '😮', '🎉', '💯'];
 const TABS = [
   { id: 'chat', label: '💬 Chat' },
+  { id: 'browse', label: '🔍 Dekho' },
   { id: 'queue', label: '🎧 Queue' },
-  { id: 'work', label: '📝 Saath Kaam' },
+  { id: 'work', label: '📝 Kaam' },
 ];
 
 export default function Room({ initial, myName, onLeave }) {
@@ -33,6 +37,7 @@ export default function Room({ initial, myName, onLeave }) {
   const voice = useVoice();
   const isHost = hostId === initial.youId;
   const myId = initial.youId;
+  const screen = useScreenShare({ myId, initialSharer: initial.screenShare || null });
 
   useEffect(() => {
     const onMembers = ({ members, hostId }) => { setMembers(members); setHostId(hostId); };
@@ -95,6 +100,7 @@ export default function Room({ initial, myName, onLeave }) {
   };
 
   const leave = () => {
+    if (screen.sharing) screen.stopShare();
     if (voice.inVoice) voice.leaveVoice();
     socket.disconnect();
     onLeave();
@@ -142,7 +148,15 @@ export default function Room({ initial, myName, onLeave }) {
       <main className="flex-1 w-full max-w-[1600px] mx-auto px-4 py-4 flex flex-col lg:flex-row gap-4 min-h-0">
         <section className="flex-1 min-w-0">
           <div className="relative">
-            <Stage playback={playback} />
+            {screen.sharer ? (
+              <ScreenStage
+                sharer={screen.sharer}
+                isMe={screen.sharing}
+                stream={screen.sharing ? screen.localStream : screen.remoteStream}
+              />
+            ) : (
+              <Stage playback={playback} />
+            )}
             {/* floating reactions overlay */}
             <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl">
               {reactions.map((r) => (
@@ -180,6 +194,20 @@ export default function Room({ initial, myName, onLeave }) {
                 <span className="text-xs text-emerald-300">● Voice live ({voiceSet.size})</span>
               </div>
             )}
+            <div className="h-6 w-px bg-white/10 mx-1 hidden sm:block" />
+            {!screen.sharer ? (
+              <button onClick={() => screen.startShare(members.map((m) => m.id))}
+                className="rounded-xl bg-sky-500/20 border border-sky-500/40 text-sky-300 px-4 py-2 text-sm font-semibold hover:bg-sky-500/30">
+                🖥️ Screen Share
+              </button>
+            ) : screen.sharing ? (
+              <button onClick={screen.stopShare}
+                className="rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 px-4 py-2 text-sm font-semibold hover:bg-red-500/30">
+                🛑 Share Roko
+              </button>
+            ) : (
+              <span className="text-xs text-sky-300">🖥️ {screen.sharer.name} screen share kar raha hai</span>
+            )}
             <span className="text-[11px] text-gray-500 ml-auto hidden md:block">Emoji dabao — sab ke stage par udega ✨</span>
           </div>
 
@@ -211,6 +239,7 @@ export default function Room({ initial, myName, onLeave }) {
           </div>
           <div className="flex-1 min-h-0">
             {tab === 'chat' && <Chat messages={messages} myName={myName} />}
+            {tab === 'browse' && <BrowsePanel />}
             {tab === 'queue' && <QueuePanel queue={queue} playback={playback} isHost={isHost} queueError={queueError} />}
             {tab === 'work' && <WorkPanel notes={notes} todos={todos} />}
           </div>
