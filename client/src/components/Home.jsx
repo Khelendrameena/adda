@@ -61,7 +61,7 @@ export default function Home({ onEnter }) {
         <div className="rounded-3xl bg-panel border border-white/10 p-6 shadow-2xl space-y-5">
           <div>
             <label className="text-xs uppercase tracking-wider text-gray-400">Tumhara naam</label>
-            <input className={`${inputCls} mt-1.5`} placeholder="e.g. Khelendra" value={name}
+            <input className={`${inputCls} mt-1.5`} placeholder="e.g. Harsh" value={name}
               onChange={(e) => setName(e.target.value)} maxLength={40} />
           </div>
 
