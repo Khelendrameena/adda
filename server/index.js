@@ -9,6 +9,8 @@
 
 const express = require('express');
 const http = require('http');
+const path = require('path');
+const fs = require('fs');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const yts = require('yt-search');
@@ -62,6 +64,34 @@ app.get('/api/search', async (req, res) => {
     return res.status(502).json({ error: 'Search abhi nahi ho paya — thodi der baad phir try karo.' });
   }
 });
+
+/* ------------------------------------------------------------------ */
+/* Serve the built client (production / single-origin mode)            */
+/*                                                                     */
+/* Jab client/dist maujood ho (npm run start:prod se banta hai), to     */
+/* server site + API + sockets sab EK hi origin se deta hai — isi se   */
+/* ek hi Cloudflare Tunnel URL par poora Adda chal jata hai.           */
+/* dist na ho to (plain local dev) ye block skip ho jata hai aur        */
+/* client Vite dev server (:5173) se hi chalta rehta hai.              */
+/* ------------------------------------------------------------------ */
+
+const clientDist = path.join(__dirname, '..', 'client', 'dist');
+const clientIndex = path.join(clientDist, 'index.html');
+if (fs.existsSync(clientIndex)) {
+  app.use(express.static(clientDist));
+  // SPA fallback: baaki saare GETs (room links waghera) index.html ko jayein.
+  // /health aur /api/* Express routes pehle hi match ho chuke hain;
+  // /socket.io/* ko Socket.IO layer Express se pehle handle karta hai —
+  // phir bhi teeno ko yahan bhi exclude rakha hai taaki fallback kabhi
+  // API/socket traffic ko na kha jaye.
+  app.get('*', (req, res, next) => {
+    if (req.path === '/health' || req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) {
+      return next();
+    }
+    return res.sendFile(clientIndex);
+  });
+  console.log(`[static] client/dist serve ho raha hai (same-origin mode)`);
+}
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });

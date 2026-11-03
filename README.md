@@ -55,7 +55,44 @@ Browser me `http://localhost:5173` kholo, naam likho, **Create Room** → code d
 Dusri tab/window se test karna ho to wahi code daal ke **Join** karo.
 
 - Server port: `PORT` env (default `4000`). Health check: `GET /health` → `{ "ok": true }`
-- Client server URL: `VITE_API_URL` env (default `http://localhost:4000`)
+- Client server URL: `VITE_API_URL` env set ho to wahi; warna Vite dev (`:5173`) par `http://localhost:4000`; production/tunnel mode me page ka apna origin (same-origin — kuch set nahi karna padta)
+
+## 🏠 Cloudflare Tunnel se ghar se host karo (free)
+
+Poora Adda — site + server — apne hi PC/WSL se chalao aur ek hi public link doston ko de do. Kuch deploy nahi karna, koi account nahi chahiye.
+
+```bash
+# (a) ek hi baar: saari dependencies install karo
+npm run install:all
+
+# (b) production mode: client build hoga, phir server site + API + sockets
+#     SAB ek hi port par dega → http://localhost:4000
+npm run start:prod
+```
+
+Phir `cloudflared` lagao (WSL me, ek hi baar):
+
+```bash
+# (c) official Cloudflare GitHub release se binary download karo
+curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+chmod +x cloudflared
+mv cloudflared ~/cloudflared        # ya: sudo mv cloudflared /usr/local/bin/
+```
+
+Ab tunnel chalao (server wale terminal ke alawa ek aur terminal me):
+
+```bash
+# (d) tunnel — ye ek https://<random>.trycloudflare.com URL print karega
+~/cloudflared tunnel --url http://localhost:4000
+```
+
+Print hua `https://<random>.trycloudflare.com` link doston ko bhej do — wahi kholkar seedha room join kar lenge. Koi `VITE_API_URL` set nahi karna: production mode me client khud page ke origin se API/socket dhoondh leta hai.
+
+**Dhyan do:**
+- Quick tunnel ka **URL har restart par badal jata hai** — koi account nahi chahiye, bas naya link phir se share karna hoga.
+- Site sirf **tab tak online hai jab tak PC + `start:prod` server + tunnel teeno chal rahe hain** — kuch band kiya to adda band.
+- Tunnel HTTPS deta hai, isliye **mic aur screen-share permissions tunnel wale link par bhi kaam karte hain** (secure context).
+- Fixed URL chahiye to baad me upgrade: Cloudflare account + apna domain ke saath **named tunnel** bana lo — phir link hamesha wahi rahega.
 
 ## ✅ Smoke test
 
